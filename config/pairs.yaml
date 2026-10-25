@@ -1,0 +1,22 @@
+broker:
+  name: mt5
+  symbol_suffix: "m"        # Exness cent account; set "" for standard
+
+# role -> timeframe, per volatility class
+timeframe_roles:
+  low:
+    bias: D1
+    trend: H4
+    structure: H1
+    entry: M15
+  high:
+    bias: H4
+    trend: H1
+    structure: M15
+    entry: M5
+
+# edit this list to your real pairs
+pairs:
+  EURUSD: { volatility_class: low,  pip_size: 0.0001 }
+  USDJPY: { volatility_class: low,  pip_size: 0.01 }
+  GBPUSD: { volatility_class: high, pip_size: 0.0001 }
