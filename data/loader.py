@@ -3,7 +3,15 @@ import pandas as pd
 from broker.base import Broker
 from config.settings import PairConfig, ROLES
 from data.timeframes import tf_delta
+from data.resample import resample_ny_anchor
 
+ANCHORED_TFS = {"H4", "D1"}
+
+def fetch_tf(broker, symbol, tf, start, end):
+    if tf in ANCHORED_TFS:
+        h1 = broker.get_candles_range(symbol, "H1", start, end)
+        return resample_ny_anchor(h1, tf)
+    return broker.get_candles_range(symbol, tf, start, end)
 
 def load_mtf(broker: Broker, pair: PairConfig, start: datetime, end: datetime,
              warmup_bars: int = 100) -> dict:
@@ -12,7 +20,7 @@ def load_mtf(broker: Broker, pair: PairConfig, start: datetime, end: datetime,
     for role in ROLES:
         tf = pair.tf(role)
         warm_start = start - tf_delta(tf) * warmup_bars
-        frames[role] = broker.get_candles_range(pair.broker_symbol, tf, warm_start, end)
+        frames[role] = fetch_tf(broker, pair.broker_symbol, tf, warm_start, end)
     return frames
 
 
