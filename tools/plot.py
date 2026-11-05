@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 
-def plot_structure(df, swings, events, fvgs, start, end, path, title="", ranges=None):
+def plot_structure(df, swings, events, fvgs, start, end, path, title=""):
     """Candles [start:end] with swings, BOS/MSS lines and validated FVG boxes."""
     end = min(end, len(df))
     fig, ax = plt.subplots(figsize=(16, 8))
@@ -39,23 +39,6 @@ def plot_structure(df, swings, events, fvgs, start, end, path, title="", ranges=
             ax.add_patch(Rectangle((max(f.c1, start), f.bottom), min(x1, end) - max(f.c1, start),
                                    f.top - f.bottom, color=col, alpha=0.22 if f.status == "active" else 0.12,
                                    zorder=1))
-
-    if ranges is not None and len(ranges):
-        for r in ranges.itertuples(index=False):
-            x0, x1 = max(r.start_idx, start), min(r.end_idx + 1, end)
-            if x1 <= start or r.start_idx >= end:
-                continue
-            ax.add_patch(Rectangle((x0, r.bottom), x1 - x0, r.top - r.bottom, facecolor="#1565c0",
-                                   edgecolor="#1565c0", alpha=0.10, lw=1.2, zorder=0))
-            ax.text(x0 + 0.5, r.top, "RANGE", color="#1565c0", fontsize=8, va="bottom", zorder=5)
-            if r.status == "broken" and start <= r.break_idx < end:
-                up = r.break_dir == "up"
-                strong = r.momentum >= 1.0
-                ax.annotate(f"{r.momentum:.1f}", (r.break_idx, r.top if up else r.bottom),
-                            xytext=(0, 14 if up else -14), textcoords="offset points",
-                            ha="center", va="center", fontsize=9, fontweight="bold" if strong else "normal",
-                            color="#1565c0", zorder=6,
-                            arrowprops=dict(arrowstyle="-|>", color="#1565c0", lw=1.4 if strong else 0.8))
 
     lo = df["low"].iloc[start:end].min()
     hi = df["high"].iloc[start:end].max()
