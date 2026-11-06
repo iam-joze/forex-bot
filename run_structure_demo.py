@@ -34,7 +34,7 @@ for role, df in frames.items():
     print(f"{role:9} {tf:4} candles={len(df):5} swings={len(sw):4} "
           f"BOS={int((ev.type == 'BOS').sum()):3} MSS={int((ev.type == 'MSS').sum()):3} "
           f"valid FVGs={len(fv):3} active={int((fv.status == 'active').sum()) if len(fv) else 0}")
-    path = f"logs/{PAIR}_{role}_{tf}.png"
+    path = f"logs/structure/{PAIR}_{role}_{tf}.png"
     plot_structure(df, sw, ev, fv, max(0, len(df) - SHOW), len(df), path,
                    f"{PAIR} {tf} ({role}) swing_n={SWING_N} fvg_min_atr={FVG_MIN_ATR}")
     print("   chart:", path)
