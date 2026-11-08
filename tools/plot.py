@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 
-def plot_structure(df, swings, events, fvgs, start, end, path, title="", obs=None):
-    """Candles [start:end] with swings, BOS/MSS lines, validated FVG boxes and order blocks."""
+def plot_structure(df, swings, events, fvgs, start, end, path, title="", obs=None, fibs=None):
+    """Candles [start:end] with swings, BOS/MSS lines, validated FVG boxes, order blocks and fibs."""
     end = min(end, len(df))
     fig, ax = plt.subplots(figsize=(16, 8))
 
@@ -54,6 +54,21 @@ def plot_structure(df, swings, events, fvgs, start, end, path, title="", obs=Non
             ax.text(x0, o.high if o.direction == "bear" else o.low,
                     "OB" + (" G" if o.liq_grab else ""), color=col, fontsize=9, fontweight="bold",
                     va="bottom" if o.direction == "bear" else "top", zorder=6, clip_on=True)
+
+    if fibs:
+        for fb in fibs:
+            xs = max(fb["x_start"], start)
+            xe = min(fb["x_to"], end)
+            ax.plot([fb["x_start"], fb["x_end"]], [fb["start"], fb["end"]], color="#455a64", lw=1.4,
+                    marker="o", ms=4, zorder=4)
+            ax.add_patch(Rectangle((xs, fb["ote_lo"]), xe - xs, fb["ote_hi"] - fb["ote_lo"],
+                                   facecolor="#fbc02d", alpha=0.18, edgecolor="none", zorder=0))
+            for price, label, col, ls in ((fb["mid"], "0.5", "#455a64", "--"),
+                                          (fb["lvl62"], "0.62", "#f9a825", "-"),
+                                          (fb["lvl79"], "0.79", "#f9a825", "-")):
+                ax.plot([xs, xe], [price, price], color=col, lw=1.0, ls=ls, zorder=4)
+                ax.text(xe, price, " " + label, color=col, fontsize=8, ha="left", va="center",
+                        clip_on=True, zorder=6)
 
     lo = df["low"].iloc[start:end].min()
     hi = df["high"].iloc[start:end].max()
