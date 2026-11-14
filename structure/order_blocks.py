@@ -10,7 +10,7 @@ OB_COLS = ["idx", "time", "direction", "high", "low", "body_high", "body_low",
 
 def find_order_blocks(df: pd.DataFrame, events: pd.DataFrame,
                       min_leg_atr: float = 2.0, max_after_origin: int = 5,
-                      bear_close_ref: str = "open",
+                      bear_close_ref: str = "low",
                       liq_lookback: int = 40, liq_swing_n: int = 2) -> pd.DataFrame:
     """
     One order block per BOS/MSS leg: the FIRST candle c (scanning from just before the leg's
@@ -24,7 +24,7 @@ def find_order_blocks(df: pd.DataFrame, events: pd.DataFrame,
     Bearish OB (green candle before a bearish BOS/MSS):
       - c is bullish; its high clears the previous candle's high
       - the next candle does not trade above c's high
-      - the next candle is bearish and CLOSES BELOW c's open (bear_close_ref="open";
+      - the next candle is bearish and CLOSES BELOW c's open (bear_close_ref="low";
         use "low" to require a close below c's low instead)
       - that leaves an FVG of any size: high[c+2] < low[c]
     The leg must also be a strong impulse (leg_atr >= min_leg_atr).
