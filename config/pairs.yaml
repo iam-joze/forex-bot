@@ -19,5 +19,8 @@ timeframe_roles:
 pairs:
   EURUSD: { volatility_class: low,  pip_size: 0.0001 }
   USDJPY: { volatility_class: low,  pip_size: 0.01 }
-  GBPUSD: { volatility_class: high, pip_size: 0.0001 }
-  XAUUSD: { volatility_class: low, pip_size: 0.1 }
+  GBPUSD: { volatility_class: low, pip_size: 0.0001 }
+  XAUUSD: { volatility_class: high, pip_size: 0.1 }
+  USDCAD: { volatility_class: low, pip_size: 0.0001 }
+  USDCHF: { volatility_class: low, pip_size: 0.0001 }
+  AUDUSD: { volatility_class: low, pip_size: 0.0001 }

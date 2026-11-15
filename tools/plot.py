@@ -5,8 +5,10 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 
-def plot_structure(df, swings, events, fvgs, start, end, path, title="", obs=None, fibs=None):
-    """Candles [start:end] with swings, BOS/MSS lines, validated FVG boxes, order blocks and fibs."""
+def plot_structure(df, swings, events, fvgs, start, end, path, title="", obs=None, fibs=None,
+                   highlights=None, positions=None, vlines=None):
+    """Candles [start:end] with swings, BOS/MSS lines, validated FVG boxes, order blocks and fibs.
+    Optional: highlights (outlined boxes), positions (TradingView-style long/short boxes), vlines."""
     end = min(end, len(df))
     fig, ax = plt.subplots(figsize=(16, 8))
 
@@ -70,11 +72,48 @@ def plot_structure(df, swings, events, fvgs, start, end, path, title="", obs=Non
                 ax.text(xe, price, " " + label, color=col, fontsize=8, ha="left", va="center",
                         clip_on=True, zorder=6)
 
+    if highlights:                                   # outlined boxes, e.g. the zone POI that was touched
+        for h in highlights:
+            x0, x1 = max(h["x0"], start), min(h["x1"], end)
+            if x1 <= x0:
+                continue
+            col = h.get("color", "#1976d2")
+            ax.add_patch(Rectangle((x0, h["bottom"]), x1 - x0, h["top"] - h["bottom"],
+                                   facecolor=col, edgecolor=col, alpha=0.28, lw=1.8, zorder=1))
+            ax.text(x0, h["top"], " " + h["label"], color=col, fontsize=9, fontweight="bold",
+                    va="bottom", clip_on=True, zorder=6)
+
+    if positions:                                    # TradingView long/short tool: green = TP side, red = SL side
+        for p in positions:
+            xs, x1 = max(p["x0"], start), min(p["x1"], end)
+            if p["x0"] >= end or x1 <= xs:
+                continue
+            sl_lo, sl_hi = sorted((p["entry"], p["sl"]))
+            ax.add_patch(Rectangle((xs, sl_lo), x1 - xs, sl_hi - sl_lo, facecolor="#ef5350",
+                                   alpha=0.25, edgecolor="none", zorder=1.5))
+            ax.text(x1, p["sl"], f" SL {p['sl_pips']:.0f} pips" + (" (hit)" if p.get("outcome") == "SL" else ""),
+                    color="#c62828", fontsize=8, va="center", clip_on=True, zorder=6)
+            if p["tp"] == p["tp"]:
+                tp_lo, tp_hi = sorted((p["entry"], p["tp"]))
+                ax.add_patch(Rectangle((xs, tp_lo), x1 - xs, tp_hi - tp_lo, facecolor="#26a69a",
+                                       alpha=0.25, edgecolor="none", zorder=1.5))
+                ax.text(x1, p["tp"], f" TP {p['tp_pips']:.0f} pips" + (" (hit)" if p.get("outcome") == "TP" else ""),
+                        color="#00695c", fontsize=8, va="center", clip_on=True, zorder=6)
+            ax.plot([xs, x1], [p["entry"], p["entry"]], color="#455a64", lw=1.3, zorder=5)
+
     lo = df["low"].iloc[start:end].min()
     hi = df["high"].iloc[start:end].max()
     pad = (hi - lo) * 0.03
     ax.set_xlim(start - 1, end + 1)
     ax.set_ylim(lo - pad, hi + pad)
+
+    if vlines:
+        for x, label, col in vlines:
+            if start <= x < end:
+                ax.axvline(x, color=col, ls=":", lw=1.2, zorder=4)
+                ax.text(x, hi, " " + label, color=col, fontsize=8, rotation=90, va="top",
+                        clip_on=True, zorder=6)
+
     step = max(1, (end - start) // 10)
     ticks = list(range(start, end, step))
     ax.set_xticks(ticks)
