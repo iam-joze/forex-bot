@@ -1,6 +1,7 @@
 """
 Explains what the confluence engine did around given times.
-Usage:  py -m reviews.strategytrace_setup.py                       (the setups we have discussed)
+Usage:  py -m reviews.strategy.trace_setup                       (the setups we have discussed)
+        py -m reviews.strategy.trace_setup "2026-03-01 14:30"    (any time(s) you want explained)
 """
 import sys
 from datetime import datetime, timedelta, timezone
