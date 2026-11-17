@@ -11,7 +11,8 @@ import pandas as pd
 from broker.mt5 import MT5Broker
 from config.settings import load_settings
 from data.loader import fetch_tf
-from strategy.confluence import scan, PIP, MAX_POI_PIPS
+from strategy.confluence import scan
+from risk.rules import DEFAULT_RULES
 from structure.utils import atr
 from reviews.strategy.run_confluence_review import build, PAIR, DAYS
 
@@ -32,9 +33,10 @@ if __name__ == "__main__":
 
     P = build(raw)
     log = []
-    scan(P, log=log)
+    scan(P, pair, log=log)
     log.sort(key=lambda x: x[0])
-    print(f"\nM15 ATR median: {atr(P['M15']['df']).median() / PIP:.0f} pips (POIs over {MAX_POI_PIPS} pips are not traded)")
+    print(f"\nM15 ATR median: {atr(P['M15']['df']).median() / pair.pip_size:.0f} pips "
+          f"(POIs over {DEFAULT_RULES.max_poi_pips} pips are not traded)")
     for t in targets:
         t0 = pd.Timestamp(t)
         print(f"\n=== around {t0} (last {HOURS_BEFORE}h before, {HOURS_AFTER}h after) ===")

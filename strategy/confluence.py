@@ -4,8 +4,10 @@ Causal: an H1 candle counts only once closed (close time = next candle's open).
 One position at a time: the next POI is taken only after the previous trade hit its stop;
 a take-profit ends the setup. D1 and H4 are not used.
 Swing detector per timeframe: see structure/swing_methods.py.
-scan(P, log=[]) appends (time, message) notes explaining what the engine did (see trace_setup.py).
+scan(P, pair, rules=DEFAULT_RULES, log=[]) appends (time, message) notes explaining what the engine did
+(see trace_setup.py). Pip size comes from the pair, entry/stop/simulation rules from risk/rules.py.
 """
+
 import numpy as np
 import pandas as pd
 from structure.swing_methods import swings_for
@@ -14,12 +16,10 @@ from structure.fvg import find_fvgs, validate_fvgs
 from structure.order_blocks import find_order_blocks
 from structure.fib_zones import provisional_fib, validate_pois
 from structure.utils import atr
+from risk.rules import DEFAULT_RULES, poi_entry, stop_loss, simulate
 
 DUR = {"H1": np.timedelta64(1, "h"), "M15": np.timedelta64(15, "m")}
 OTE = (0.62, 0.79)
-PIP = 0.1              # gold: 1 pip = $0.10
-BIG_POI_PIPS = 40      # an OB/FVG taller than this is entered half-way, not at its edge
-MAX_POI_PIPS = 60      # an OB/FVG taller than this is not traded
 MOM_ATR = 1.5          # FVGs and OBs are skipped when the approach candles are this big (ATR units)
 ZONE_FAIL_KILLS = False  # True: an M15 close beyond the touched zone POI's far edge also ends the setup
 EXCLUDE_MITIGATED = True  # True: a POI that was touched before it became valid counts as mitigated, not traded
@@ -135,9 +135,11 @@ def _active(g, k, bdir):
     return list(g[m].itertuples(index=False))
 
 
-def scan(P, log=None):
+def scan(P, pair, rules=DEFAULT_RULES, log=None):
     """P = {'H1','M15': prepare(...)}; M15 must be prepared with full=True. Returns one row per trade.
+    pair: PairConfig (its pip_size converts prices to pips). rules: risk.rules.ExecutionRules.
     log: optional list; (time, message) notes are appended to it."""
+    pip = pair.pip_size
     df = P["M15"]["df"]
     tm, low, high, close = (df[c].to_numpy() for c in ("time", "low", "high", "close"))
     n, a = len(df), atr(df).to_numpy()
@@ -169,22 +171,19 @@ def scan(P, log=None):
             note(r.touch_idx, f"POI {tag} not traded: already mitigated (touched before it was valid)")
             continue
         bull = r.direction == "bull"
-        h_pips = (r.top - r.bottom) / PIP
-        if h_pips > MAX_POI_PIPS:                                   # too big: not traded
+        h_pips, entry, far, mode = poi_entry(r.bottom, r.top, bull, pip, rules)
+        if entry is None:                                           # too big: not traded
             st["poi_over_max"] += 1
-            note(r.touch_idx, f"POI {tag} not traded: {h_pips:.0f} pips tall (max {MAX_POI_PIPS})")
+            note(r.touch_idx, f"POI {tag} not traded: {h_pips:.0f} pips tall (max {rules.max_poi_pips})")
             continue
-        big = h_pips > BIG_POI_PIPS
-        entry = (r.top + r.bottom) / 2 if big else (r.top if bull else r.bottom)
         j0 = int(r.touch_idx)
-        if big:
+        if mode == "half":
             seg = low[j0:int(r.valid_to) + 1] if bull else high[j0:int(r.valid_to) + 1]
             hit = np.where(seg <= entry)[0] if bull else np.where(seg >= entry)[0]
             if not len(hit):
                 continue
             j0 += int(hit[0])
-        touch.setdefault((int(r.event_idx), j0), []).append(
-            (r, entry, r.bottom if bull else r.top, "half" if big else "edge"))
+        touch.setdefault((int(r.event_idx), j0), []).append((r, entry, far, mode))
 
     ev = P["M15"]["ev"]
     e_idx, e_dir, e_typ = ev["idx"].to_numpy(), ev["direction"].to_numpy(), ev["type"].to_numpy()
@@ -199,18 +198,8 @@ def scan(P, log=None):
         ext = high[o:i].max() if bull else low[o:i].min()
         return ext if ((ext > entry) if bull else (ext < entry)) else np.nan
 
-    def simulate(i, bull, sl, tp):
-        """First stop / target hit from the entry candle on (stop first if both in one candle)."""
-        for j in range(i, n):
-            if (low[j] <= sl) if bull else (high[j] >= sl):
-                return j, "SL"
-            if j > i and tp == tp and ((high[j] >= tp) if bull else (low[j] <= tp)):
-                return j, "TP"
-        return n - 1, None
-
     sig, lg, armed, trig, cur, seq, min_i, ep, busy, last_sl, dead = \
         [], None, None, None, None, 0, 0, 0, 0, None, set()
-    step = 5 * PIP
     for i in range(1, n):
         k = k1[i]
         if armed is None:                       # follow the current H1 leg until its zone is touched
@@ -287,16 +276,15 @@ def scan(P, log=None):
                     st["momentum_skip"] += 1
                     note(i, f"{r.kind} entry {entry:.2f} skipped: approach {mom:.2f} ATR >= {MOM_ATR}")
                     continue
-                dist = np.ceil(abs(entry - far) / step - 1e-9) * step           # covers the whole POI, 5-pip multiple
-                sl = entry - dist if b > 0 else entry + dist
+                sl, dist = stop_loss(entry, far, b > 0, pip, rules)             # covers the whole POI
                 tp = leg_tp(i, b > 0, entry, cur)
-                x, out = simulate(i, b > 0, sl, tp)
+                x, out = simulate(low, high, i, b > 0, sl, tp)
                 seq += 1
                 st["trades"] += 1
                 note(i, f"TRADE {bdir} {r.kind} entry {entry:.2f} SL {sl:.2f} TP {tp:.2f} -> {out}")
-                tp_pips = abs(tp - entry) / PIP if tp == tp else np.nan
+                tp_pips = abs(tp - entry) / pip if tp == tp else np.nan
                 sig.append(dict(time=tm[i], idx=i, direction=bdir, entry=entry, sl=sl, tp=tp,
-                                sl_pips=dist / PIP, tp_pips=tp_pips, rr=tp_pips / (dist / PIP),
+                                sl_pips=dist / pip, tp_pips=tp_pips, rr=tp_pips / (dist / pip),
                                 kind=r.kind, entry_mode=mode, ote=r.ote, m15_leg=cur, seq=seq,
                                 zone_kind=armed["kind"], zone_idx=armed["idx"], fib_leg=lg["id"],
                                 fib_start=lg["start"], fib_end=lg["end"], fib_mid=lg["mid"],
