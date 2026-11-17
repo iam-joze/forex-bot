@@ -2,12 +2,14 @@
 import os
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 
 from broker.mt5 import MT5Broker
 from config.settings import load_settings
 from data.loader import fetch_tf
 from strategy.confluence import prepare, scan, close_times
+from structure.swing_methods import SWING_METHOD
 from tools.plot_signal import plot_entry_set
 
 PAIR = "XAUUSD"
@@ -16,7 +18,7 @@ KEY = ["time", "direction", "entry", "sl", "tp", "kind", "seq"]
 
 
 def build(raw):
-    return {tf: prepare(df, full=(tf == "M15")) for tf, df in raw.items()}
+    return {tf: prepare(df, tf, full=(tf == "M15")) for tf, df in raw.items()}
 
 
 def cut(raw, i_end):
@@ -37,15 +39,35 @@ if __name__ == "__main__":
 
     P = build(raw)
     s = scan(P)
-    print("\nfunnel:", s.attrs["stats"])
+    print("\nswing methods:", SWING_METHOD)
+    print("funnel:", s.attrs["stats"])
     if s.empty:
         raise SystemExit("no trades")
     print(f"trades: {len(s)}  (bull {int((s.direction == 'bull').sum())}, bear {int((s.direction == 'bear').sum())})"
           f" | outcomes {s.outcome.value_counts(dropna=False).to_dict()} | median RR {s.rr.median():.2f}")
     print("POI kind:", s.kind.value_counts().to_dict(), "| entry mode:", s.entry_mode.value_counts().to_dict(),
           "| attempt # in M15 leg:", s.seq.value_counts().sort_index().to_dict())
+
+    # self-check: did any trade come after a close beyond the fib start (counted from the leg's end swing)
+    # or beyond the touched zone's far edge (counted from the zone touch)?
+    cl = P["M15"]["df"]["close"].to_numpy()
+    tm = P["M15"]["df"]["time"].to_numpy()
+    t1 = P["H1"]["df"]["time"].to_numpy()
+    bad_start = bad_zone = 0
+    for r in s.itertuples():
+        seg = cl[int(np.searchsorted(tm, t1[int(r.fib_end_idx)])):int(r.idx)]
+        zseg = cl[int(r.armed_idx):int(r.idx)]
+        if r.direction == "bull":
+            bad_start += bool(len(seg) and seg.min() < r.fib_start)
+            bad_zone += bool(len(zseg) and zseg.min() < r.zone_bottom)
+        else:
+            bad_start += bool(len(seg) and seg.max() > r.fib_start)
+            bad_zone += bool(len(zseg) and zseg.max() > r.zone_top)
+    print(f"self-check: trades after a close beyond the fib start: {bad_start} (must be 0) | "
+          f"beyond the zone's far edge: {bad_zone}")
+
     print(s[["time", "direction", "entry", "sl", "tp", "sl_pips", "tp_pips", "rr", "kind", "entry_mode", "seq",
-              "outcome", "approach_rng_atr", "touch_rng_atr"]].head(20).to_string(float_format=lambda v: f"{v:.2f}"))
+             "outcome", "approach_rng_atr", "touch_rng_atr"]].head(20).to_string(float_format=lambda v: f"{v:.2f}"))
 
     os.makedirs("logs/confluence", exist_ok=True)
     for q, (_, g) in enumerate(s.groupby(["fib_leg", "m15_leg"], sort=True), 1):

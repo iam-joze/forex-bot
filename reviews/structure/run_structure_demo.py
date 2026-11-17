@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from broker.mt5 import MT5Broker
 from config.settings import load_settings
 from data.loader import load_mtf
-from structure.swings import find_swings, alternate 
+from structure.myswings import find_swings, alternate 
 from structure.choch_mss import find_structure
 from structure.fvg import find_fvgs, validate_fvgs
 from tools.plot import plot_structure

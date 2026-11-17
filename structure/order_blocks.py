@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from structure.swings import find_swings
+from structure.myswings import find_swings
 
 OB_COLS = ["idx", "time", "direction", "high", "low", "body_high", "body_low",
            "event_type", "break_idx", "break_time", "leg_atr",

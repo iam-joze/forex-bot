@@ -3,10 +3,12 @@ confluence.py - H1 swing-leg fib -> H1 zone POI -> M15 MSS -> M15 POI entry -> p
 Causal: an H1 candle counts only once closed (close time = next candle's open).
 One position at a time: the next POI is taken only after the previous trade hit its stop;
 a take-profit ends the setup. D1 and H4 are not used.
+Swing detector per timeframe: see structure/swing_methods.py.
+scan(P, log=[]) appends (time, message) notes explaining what the engine did (see trace_setup.py).
 """
 import numpy as np
 import pandas as pd
-from structure.swings import find_swings, alternate
+from structure.swing_methods import swings_for
 from structure.choch_mss import find_structure
 from structure.fvg import find_fvgs, validate_fvgs
 from structure.order_blocks import find_order_blocks
@@ -19,12 +21,15 @@ PIP = 0.1              # gold: 1 pip = $0.10
 BIG_POI_PIPS = 40      # an OB/FVG taller than this is entered half-way, not at its edge
 MAX_POI_PIPS = 60      # an OB/FVG taller than this is not traded
 MOM_ATR = 1.5          # FVGs and OBs are skipped when the approach candles are this big (ATR units)
+ZONE_FAIL_KILLS = False  # True: an M15 close beyond the touched zone POI's far edge also ends the setup
+EXCLUDE_MITIGATED = True  # True: a POI that was touched before it became valid counts as mitigated, not traded
 
 
-def prepare(df, full=False, swing_n=5, fvg_min_atr=0.3, min_leg_atr=2.0):
-    """Swings, BOS/MSS events, FVGs, OBs. full=True (M15 only) also builds the BOS/MSS-leg fib and POI validity."""
+def prepare(df, tf, full=False, fvg_min_atr=0.3, min_leg_atr=2.0):
+    """Swings (method per timeframe), BOS/MSS events, FVGs, OBs.
+    full=True (M15 only) also builds the BOS/MSS-leg fib and POI validity."""
     df = df.reset_index(drop=True)
-    sw = alternate(find_swings(df, swing_n))
+    sw = swings_for(df, tf)
     ev = find_structure(df, sw)
     fv = validate_fvgs(find_fvgs(df, fvg_min_atr), ev, df)
     ob = find_order_blocks(df, ev, min_leg_atr=min_leg_atr)
@@ -130,14 +135,19 @@ def _active(g, k, bdir):
     return list(g[m].itertuples(index=False))
 
 
-def scan(P):
-    """P = {'H1','M15': prepare(...)}; M15 must be prepared with full=True. Returns one row per trade."""
+def scan(P, log=None):
+    """P = {'H1','M15': prepare(...)}; M15 must be prepared with full=True. Returns one row per trade.
+    log: optional list; (time, message) notes are appended to it."""
     df = P["M15"]["df"]
     tm, low, high, close = (df[c].to_numpy() for c in ("time", "low", "high", "close"))
     n, a = len(df), atr(df).to_numpy()
     d1 = P["H1"]["df"]
     t1 = d1["time"].to_numpy()
     k1 = np.searchsorted(close_times(d1, "H1"), tm, side="right") - 1
+
+    def note(i, msg):
+        if log is not None:
+            log.append((tm[min(int(i), n - 1)], msg))
 
     fib = swing_leg_fib(d1, P["H1"]["sw"])
     f_dir = fib["dir"].to_numpy()
@@ -146,16 +156,23 @@ def scan(P):
     g1 = {int(k): g for k, g in pois_on_fib(P["H1"], fib, t1, np.arange(len(d1))).groupby("leg")}
 
     st = dict(legs_followed=0, arms=0, trigger=0, bos_leg=0, opp_mss=0, high_broken=0,
-              start_broken=0, momentum_skip=0, poi_over_max=0, trades=0)
+              start_broken=0, zone_failed=0, momentum_skip=0, poi_over_max=0,
+              poi_already_mitigated=0, trades=0)
 
     # M15 POIs: entry price and the candle on which it is reached (half-way for POIs taller than 40 pips)
     pm = P["M15"]["poi"]
     touch = {}
     for r in pm[pm.status == "touched"].itertuples(index=False):
+        tag = f"{r.kind} {r.direction} {r.bottom:.2f}-{r.top:.2f}"
+        if EXCLUDE_MITIGATED and bool(r.early_touch):              # touched before it became valid: mitigated
+            st["poi_already_mitigated"] += 1
+            note(r.touch_idx, f"POI {tag} not traded: already mitigated (touched before it was valid)")
+            continue
         bull = r.direction == "bull"
         h_pips = (r.top - r.bottom) / PIP
         if h_pips > MAX_POI_PIPS:                                   # too big: not traded
             st["poi_over_max"] += 1
+            note(r.touch_idx, f"POI {tag} not traded: {h_pips:.0f} pips tall (max {MAX_POI_PIPS})")
             continue
         big = h_pips > BIG_POI_PIPS
         entry = (r.top + r.bottom) / 2 if big else (r.top if bull else r.bottom)
@@ -201,21 +218,36 @@ def scan(P):
             if L != L or int(L) in dead:
                 lg = None
             elif lg is None or lg["id"] != int(L):
-                lg = dict(id=int(L), dir=f_dir[k], start=fc["start"][k], end=fc["end"][k],
-                          mid=fc["mid"][k], lo=fc["ote_lo"][k], hi=fc["ote_hi"][k],
-                          s_idx=int(fc["start_idx"][k]), e_idx=int(fc["end_idx"][k]))
-                min_i = i
-                st["legs_followed"] += 1
+                cand = dict(id=int(L), dir=f_dir[k], start=fc["start"][k], end=fc["end"][k],
+                            mid=fc["mid"][k], lo=fc["ote_lo"][k], hi=fc["ote_hi"][k],
+                            s_idx=int(fc["start_idx"][k]), e_idx=int(fc["end_idx"][k]))
+                # the end swing is only confirmed several candles after it formed: if price already closed
+                # beyond the leg's start in that window, the leg is dead before it even starts
+                seg = close[int(np.searchsorted(tm, t1[cand["e_idx"]])):i]
+                if len(seg) and ((seg.min() < cand["start"]) if cand["dir"] == "bull" else (seg.max() > cand["start"])):
+                    st["start_broken"] += 1
+                    dead.add(cand["id"])
+                    lg = None
+                    note(i, f"{cand['dir']} H1 leg {cand['start']:.2f} -> {cand['end']:.2f} dead on arrival: "
+                            f"price had already closed beyond its start")
+                else:
+                    lg = cand
+                    min_i = i
+                    st["legs_followed"] += 1
+                    note(i, f"follow {cand['dir']} H1 leg {cand['start']:.2f} -> {cand['end']:.2f}")
 
         while ep < len(e_idx) and e_idx[ep] < i:                               # M15 events already closed
             if armed is not None:
                 if trig is None:
                     if e_typ[ep] == "MSS" and e_dir[ep] == lg["dir"] and e_idx[ep] > armed["i"]:
                         trig = cur = int(e_idx[ep]); seq = 0; st["trigger"] += 1
+                        note(i, f"M15 MSS trigger (broke on candle {int(e_idx[ep])})")
                 elif e_dir[ep] == lg["dir"]:                                   # BOS in bias direction: new leg
                     cur = int(e_idx[ep]); st["bos_leg"] += 1
+                    note(i, "new M15 BOS leg in the setup direction")
                 else:                                                          # MSS the other way: reset zone
                     armed, trig, cur, min_i = None, None, None, i; st["opp_mss"] += 1
+                    note(i, "zone reset: M15 MSS against the setup")
             ep += 1
 
         if lg is None:
@@ -227,8 +259,12 @@ def scan(P):
         j = i - 1
         beyond_end = close[j] > lg["end"] if b > 0 else close[j] < lg["end"]
         beyond_start = close[j] < lg["start"] if b > 0 else close[j] > lg["start"]
-        if beyond_end or beyond_start:
-            st["high_broken" if beyond_end else "start_broken"] += 1
+        zone_failed = (ZONE_FAIL_KILLS and armed is not None and
+                       ((close[j] < armed["bot"]) if b > 0 else (close[j] > armed["top"])))
+        if beyond_end or beyond_start or zone_failed:
+            why = "high" if beyond_end else "start" if beyond_start else "zone far edge"
+            st["high_broken" if beyond_end else "start_broken" if beyond_start else "zone_failed"] += 1
+            note(i, f"{bdir} leg dead ({'armed' if armed else 'not armed'}): M15 close {close[j]:.2f} beyond its {why}")
             dead.add(lg["id"])
             armed = trig = cur = lg = None
             continue
@@ -238,6 +274,7 @@ def scan(P):
                 if (low[i] <= r.top) if b > 0 else (high[i] >= r.bottom):
                     armed = dict(i=i, kind=r.kind, idx=int(r.idx), bot=r.bottom, top=r.top, k1=int(k))
                     st["arms"] += 1
+                    note(i, f"ARMED: price touched H1 {r.kind} zone {r.bottom:.2f}-{r.top:.2f}")
                     break
 
         if trig is not None and cur is not None and i >= busy:
@@ -246,8 +283,9 @@ def scan(P):
             for r, entry, far, mode in sorted(touch.get((cur, i), []), key=lambda t: -t[1] if b > 0 else t[1]):
                 if i == busy and not ((entry > last_sl) if b < 0 else (entry < last_sl)):
                     continue            # same candle as the stop: only POIs price had to pass the stop to reach
-                if mom >= MOM_ATR:                         # high-momentum approach: no FVGs/OBs
+                if mom >= MOM_ATR:                                             # high-momentum approach: no FVGs/OBs
                     st["momentum_skip"] += 1
+                    note(i, f"{r.kind} entry {entry:.2f} skipped: approach {mom:.2f} ATR >= {MOM_ATR}")
                     continue
                 dist = np.ceil(abs(entry - far) / step - 1e-9) * step           # covers the whole POI, 5-pip multiple
                 sl = entry - dist if b > 0 else entry + dist
@@ -255,6 +293,7 @@ def scan(P):
                 x, out = simulate(i, b > 0, sl, tp)
                 seq += 1
                 st["trades"] += 1
+                note(i, f"TRADE {bdir} {r.kind} entry {entry:.2f} SL {sl:.2f} TP {tp:.2f} -> {out}")
                 tp_pips = abs(tp - entry) / PIP if tp == tp else np.nan
                 sig.append(dict(time=tm[i], idx=i, direction=bdir, entry=entry, sl=sl, tp=tp,
                                 sl_pips=dist / PIP, tp_pips=tp_pips, rr=tp_pips / (dist / PIP),

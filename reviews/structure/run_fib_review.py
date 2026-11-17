@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
-from structure.swings import find_swings, alternate
+from structure.myswings import find_swings, alternate
 from structure.choch_mss import find_structure
 from structure.fvg import find_fvgs, validate_fvgs
 from structure.order_blocks import find_order_blocks
