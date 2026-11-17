@@ -6,7 +6,7 @@ from datetime import timedelta
 import pandas as pd
 from broker.mt5 import MT5Broker
 from config.settings import load_settings
-from structure.swings import find_swings, find_swings_zigzag, alternate
+from structure.myswings import find_swings, find_swings_zigzag, alternate
 
 PAIR = "EURUSD"
 TFS = ["H1", "M15"]          # add "H4", "D1" once those are anchored/marked
