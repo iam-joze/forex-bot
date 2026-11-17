@@ -1,7 +1,6 @@
 """
 Explains what the confluence engine did around given times.
-Usage:  py trace_setup.py                       (the setups we have discussed)
-        py trace_setup.py "2026-03-01 14:30"    (any time(s) you want explained)
+Usage:  py -m reviews.strategytrace_setup.py                       (the setups we have discussed)
 """
 import sys
 from datetime import datetime, timedelta, timezone
@@ -13,7 +12,7 @@ from config.settings import load_settings
 from data.loader import fetch_tf
 from strategy.confluence import scan, PIP, MAX_POI_PIPS
 from structure.utils import atr
-from run_confluence_review import build, PAIR, DAYS
+from reviews.strategy.run_confluence_review import build, PAIR, DAYS
 
 DEFAULT = ["2025-12-26 10:45", "2026-02-25 12:15", "2026-10-05 02:45", "2026-09-10 11:30"]
 HOURS_BEFORE, HOURS_AFTER = 60, 3
