@@ -38,7 +38,7 @@ if __name__ == "__main__":
         broker.disconnect()
 
     P = build(raw)
-    s = scan(P)
+    s = scan(P, pair)
     print("\nswing methods:", SWING_METHOD)
     print("funnel:", s.attrs["stats"])
     if s.empty:
@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
     for frac in (0.4, 0.7, 0.9):
         i_end = int(len(raw["M15"]) * frac)
-        c = scan(build(cut(raw, i_end)))
+        c = scan(build(cut(raw, i_end)), pair)
         f = s[s.idx <= i_end].reset_index(drop=True)[KEY]
         ok = f.equals(c[KEY].reset_index(drop=True)) if len(c) else len(f) == 0
         print(f"no-lookahead cut at {frac:.0%}: full {len(f)} vs cut {len(c)} -> {'OK' if ok else 'MISMATCH'}")
