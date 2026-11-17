@@ -34,31 +34,35 @@ def score(det: pd.DataFrame, mine: pd.DataFrame, df: pd.DataFrame, tol: int):
     return rec, prec, f1, len(d), len(my)
 
 
-settings = load_settings()
-pair = settings.pairs[PAIR]
-broker = MT5Broker()
-broker.connect()
-rows = []
-try:
-    for tf in TFS:
-        mine = pd.read_csv(f"calibration/swings_{tf}.csv")
-        t0 = pd.Timestamp(mine["time_utc"].min()).to_pydatetime() - timedelta(days=WARMUP_DAYS)
-        t1 = pd.Timestamp(mine["time_utc"].max()).to_pydatetime() + timedelta(days=2)
-        df = broker.get_candles_range(pair.broker_symbol, tf, t0, t1).reset_index(drop=True)
-        cands = {}
-        for n in (2, 3, 4, 5, 6, 8, 10, 12, 15):
-            cands[f"fractal n={n} + alternate"] = alternate(find_swings(df, n))
-        for m in (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0):
-            cands[f"zigzag {m} ATR"] = find_swings_zigzag(df, m)
-        for name, det in cands.items():
-            rec, prec, f1, nd, nm = score(det, mine, df, TOL)
-            rows.append((tf, name, round(rec, 2), round(prec, 2), round(f1, 2), nd, nm))
-finally:
-    broker.disconnect()
+def main():
+    settings = load_settings()
+    pair = settings.pairs[PAIR]
+    broker = MT5Broker()
+    broker.connect()
+    rows = []
+    try:
+        for tf in TFS:
+            mine = pd.read_csv(f"calibration/swings_{tf}.csv")
+            t0 = pd.Timestamp(mine["time_utc"].min()).to_pydatetime() - timedelta(days=WARMUP_DAYS)
+            t1 = pd.Timestamp(mine["time_utc"].max()).to_pydatetime() + timedelta(days=2)
+            df = broker.get_candles_range(pair.broker_symbol, tf, t0, t1).reset_index(drop=True)
+            cands = {}
+            for n in (2, 3, 4, 5, 6, 8, 10, 12, 15):
+                cands[f"fractal n={n} + alternate"] = alternate(find_swings(df, n))
+            for m in (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0):
+                cands[f"zigzag {m} ATR"] = find_swings_zigzag(df, m)
+            for name, det in cands.items():
+                rec, prec, f1, nd, nm = score(det, mine, df, TOL)
+                rows.append((tf, name, round(rec, 2), round(prec, 2), round(f1, 2), nd, nm))
+    finally:
+        broker.disconnect()
 
-res = pd.DataFrame(rows, columns=["tf", "rule", "recall", "precision", "f1", "detected", "yours"])
-pd.set_option("display.width", 200)
-for tf, g in res.groupby("tf", sort=False):
-    print(f"\n=== {tf} (top 6 by F1) ===")
-    print(g.sort_values("f1", ascending=False).head(6).drop(columns="tf").to_string(index=False))
-    
+    res = pd.DataFrame(rows, columns=["tf", "rule", "recall", "precision", "f1", "detected", "yours"])
+    pd.set_option("display.width", 200)
+    for tf, g in res.groupby("tf", sort=False):
+        print(f"\n=== {tf} (top 6 by F1) ===")
+        print(g.sort_values("f1", ascending=False).head(6).drop(columns="tf").to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()

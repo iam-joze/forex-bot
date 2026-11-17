@@ -2,7 +2,7 @@
 from structure.myswings import find_swings, alternate
 
 SWING_METHOD = {
-    "H1": ("fractal", {"n": 5}),             # structure/swings.py: fractal n=5 + alternation
+    "H1": ("fractal", {"n": 5}),             # structure/myswings.py: fractal n=5 + alternation
 }
 DEFAULT_METHOD = ("fractal", {"n": 5})
 
